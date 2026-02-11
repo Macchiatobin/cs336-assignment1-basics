@@ -269,8 +269,13 @@ def bpe_tokenizer_training(
     return reverse_vocab, merges
 
 if __name__ == "__main__":
-    input_path = "/home/canbin/cs336-assignment1-basics/data/TinyStoriesV2-GPT4-valid.txt"
-    vocab_size = 500 # DEBUG
+    # BPE training on TinyStories part
+    # input_path = "/home/canbin/cs336-assignment1-basics/data/TinyStoriesV2-GPT4-train.txt"
+    # vocab_size = 10000
+    # BPE training on OpenWebText part
+    input_path = "/home/canbin/cs336-assignment1-basics/data/owt_valid.txt"
+    vocab_size = 32000
+    
     special_tokens = ["<|endoftext|>"]
     
     vocab, merges = bpe_tokenizer_training(
@@ -287,3 +292,10 @@ if __name__ == "__main__":
     print(merges[:5])
     print("...")
     print(merges[-5:])
+    
+    # serialize vocab and merges to disk
+    import pickle
+    with open("bpe_vocab.pkl", "wb") as f:
+        pickle.dump(vocab, f)
+    with open("bpe_merges.pkl", "wb") as f:
+        pickle.dump(merges, f)
