@@ -559,7 +559,12 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    from cs336_basics.tokenizer import Tokenizer
+    return Tokenizer(
+        vocab=vocab,
+        merges=merges,
+        special_tokens=special_tokens
+    )
 
 
 def run_train_bpe(
@@ -589,7 +594,7 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.bpe_tokenizer import bpe_tokenizer_training
+    from cs336_basics.bpe_tokenizer_training import bpe_tokenizer_training
     return bpe_tokenizer_training(
         input_path=input_path,
         vocab_size=vocab_size,
