@@ -29,7 +29,13 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    from cs336_basics.transformer.basic_modules import Linear
+    ln_module=Linear(
+        in_features=d_in,
+        out_features=d_out,
+    )
+    ln_module.W=torch.nn.Parameter(weights)
+    return ln_module.forward(in_features)
 
 
 def run_embedding(
@@ -50,8 +56,13 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-
-    raise NotImplementedError
+    from cs336_basics.transformer.basic_modules import Embedding
+    embedding_module=Embedding(
+        vocab_size=vocab_size,
+        d_model=d_model,
+    )
+    embedding_module.EmbeddingMatrix = torch.nn.Parameter(weights)
+    return embedding_module.forward(token_ids)
 
 
 def run_swiglu(
@@ -559,7 +570,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    from cs336_basics.tokenizer import Tokenizer
+    from cs336_basics.tokenizer.tokenizer import Tokenizer
     return Tokenizer(
         vocab=vocab,
         merges=merges,
@@ -594,7 +605,7 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.bpe_tokenizer_training import bpe_tokenizer_training
+    from cs336_basics.tokenizer.bpe_tokenizer_training import bpe_tokenizer_training
     return bpe_tokenizer_training(
         input_path=input_path,
         vocab_size=vocab_size,
