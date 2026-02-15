@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from einops import einsum
+from einops import einsum, rearrange
 
 
 class Linear(torch.nn.Module):
@@ -67,3 +67,33 @@ class Embedding(torch.nn.Module):
         token_ids: torch.Tensor # [bs, seq_len]
     ) -> torch.Tensor:
         return self.EmbeddingMatrix[token_ids] # pure look-up here
+    
+class RMSNorm(torch.nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        eps: float = 1e-5,
+        device: torch.device=None,
+        dtype: torch.dtype=None,
+    ):
+        super().__init__()
+        self.d_model=d_model
+        self.eps=eps
+        self.device=device or 'cpu'
+        self.dtype=dtype or torch.float32
+        
+        # initialize as ones, according to the given setting
+        self.gain_param = torch.nn.Parameter(torch.ones((self.d_model,), dtype=self.dtype))
+        
+    def forward(
+        self,
+        x: torch.Tensor # (... d_model)
+    ):
+        original_dtype = x.dtype
+        x = x.to(torch.float32)
+        
+        RMS = torch.sqrt(self.eps + (einsum(x, x, '... i, ... i -> ...') / self.d_model)) # sum over a_i^2
+        RMS = rearrange(RMS, '... -> ... 1') # unsqueeze for broadcasting
+        result = einsum(x, self.gain_param, '... i, i -> ... i') / RMS
+        
+        return result.to(original_dtype)
