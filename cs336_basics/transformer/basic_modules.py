@@ -1,5 +1,5 @@
 import torch
-from einops import einsum, rearrange, repeat
+from einops import einsum, rearrange, reduce
 
 
 class Linear(torch.nn.Module):
@@ -246,3 +246,10 @@ class RotaryPositionalEmbedding(torch.nn.Module):
             ]
         """
         return (x * cos) + (sin_part * sin)
+    
+def softmax(
+    x: torch.Tensor,
+    dim: int,
+):
+    z = torch.exp(x - torch.max(x, dim=dim, keepdim=True).values)
+    return z / torch.sum(z, dim=dim, keepdim=True)
