@@ -1,6 +1,5 @@
 import torch
-import numpy as np
-from einops import einsum, rearrange
+from einops import einsum, rearrange, repeat
 
 
 class Linear(torch.nn.Module):
@@ -186,3 +185,64 @@ class SwiGLU(torch.nn.Module):
         gate_input = self.W3_layer.forward(x) # ... d_ff
         gate_output = einsum(SiLU_output, gate_input, '... d_model, ... d_model -> ... d_model')
         return self.W2_layer.forward(gate_output)
+    
+class RotaryPositionalEmbedding(torch.nn.Module):
+    def __init__(
+        self,
+        theta: float,
+        d_k: int,
+        max_seq_len: int,
+        device: torch.device=None,
+        dtype: torch.dtype=None,
+    ):
+        super().__init__()
+        
+        self.Theta=theta
+        self.d_k=d_k # d_model | d_head
+        self.max_seq_len=max_seq_len
+        self.device: torch.device=device or 'cpu'
+        self.dtype: torch.dtype=dtype or torch.float32
+        
+        positions = torch.arange(max_seq_len) # (max_seq_len,), range: 0, 1, ..., max_seq_len - 1
+        starting_dims_for_pairs = torch.arange(0, self.d_k, 2) # (d_k / 2,), range: 0, 2, ..., d_k - 2
+        freqs = 1.0 / (self.Theta ** (starting_dims_for_pairs.float() / self.d_k)) # (d_k / 2,)
+        angles = einsum(positions, freqs, 'max_seq_len, half_d_k -> max_seq_len half_d_k') # \theta_0, \theta_1...
+        angles = angles.repeat_interleave(2, dim=-1) # (max_seq_len, d_k)
+        # \theta_0, \theta_0, \theta_1, \theta_1...
+        
+        # register rotation matrix (cos) as unlearnable tensor
+        self.register_buffer(
+            name='cos',
+            tensor=torch.cos(angles).to(self.dtype),
+            persistent=False,
+        )
+        self.register_buffer(
+            name='sin',
+            tensor=torch.sin(angles).to(self.dtype),
+            persistent=False,
+        )
+        
+    def forward(
+        self,
+        x: torch.Tensor, # ..., seq_len, d_k
+        token_positions: torch.Tensor, # .., seq_len
+    ):
+        # slice token positions, (..., seq_len, d_k)
+        cos = self.cos[token_positions]
+        sin = self.sin[token_positions]
+        
+        x1 = x[..., 0::2] # (..., seq_len, d_k/2), even dims=x0, x2...
+        x2 = x[..., 1::2] # (..., seq_len, d_k/2), odd dims=x1, x3...
+        sin_part = torch.stack([-x2, x1], dim=-1) # (..., seq_len, d_k/2, 2) [[-x1, x0], [-x3, x2]... ]
+        sin_part = sin_part.flatten(start_dim=-2) # (..., seq_len, d_k) [-x1, x0, -x3, x2...]
+        
+        """
+            [
+                x0 * cos - x1 * sin,
+                x1 * cos + x0 * sin,
+                x2 * cos - x3 * sin,
+                x3 * cos + x2 * sin,
+                ...
+            ]
+        """
+        return (x * cos) + (sin_part * sin)
