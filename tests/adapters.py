@@ -34,7 +34,7 @@ def run_linear(
         in_features=d_in,
         out_features=d_out,
     )
-    ln_module.W=torch.nn.Parameter(weights)
+    ln_module.load_param(weights)
     return ln_module.forward(in_features)
 
 
@@ -61,7 +61,7 @@ def run_embedding(
         vocab_size=vocab_size,
         d_model=d_model,
     )
-    embedding_module.EmbeddingMatrix = torch.nn.Parameter(weights)
+    embedding_module.load_param(weights)
     return embedding_module.forward(token_ids)
 
 
@@ -94,7 +94,17 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    from cs336_basics.transformer.basic_modules import SwiGLU
+    swiglu_module=SwiGLU(
+        d_model=d_model,
+        d_ff=d_ff,
+    )
+    swiglu_module.load_param(
+        W1=w1_weight,
+        W2=w2_weight,
+        W3=w3_weight,
+    )
+    return swiglu_module.forward(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -394,7 +404,7 @@ def run_rmsnorm(
         d_model=d_model,
         eps=eps,
     )
-    norm_module.gain_param = torch.nn.Parameter(weights)
+    norm_module.load_param(weights)
     return norm_module.forward(in_features)
 
 

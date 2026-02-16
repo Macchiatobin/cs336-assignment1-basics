@@ -31,6 +31,14 @@ class Linear(torch.nn.Module):
             a=-(3 * init_std),
             b=(3 * init_std)
         )
+        
+    def load_param(
+        self, 
+        W: torch.Tensor
+    ):
+        assert W.shape == (self.d_model, self.in_dim), f"Expected shape {(self.d_model, self.in_dim)}, but got {W.shape}"
+        with torch.no_grad():
+            self.W = torch.nn.Parameter(W.to(self.dtype).to(self.device))
     
     def forward(
         self,
@@ -61,6 +69,15 @@ class Embedding(torch.nn.Module):
             a=-3,
             b=3
         )
+        
+    def load_param(
+        self,
+        EmbeddingMatrix: torch.Tensor
+    ):
+        assert EmbeddingMatrix.shape == (self.vocab_size, self.d_model), f"Expected shape {(self.vocab_size, self.d_model)}, but got {EmbeddingMatrix.shape}"
+        with torch.no_grad():
+            self.EmbeddingMatrix = torch.nn.Parameter(EmbeddingMatrix.to(self.dtype).to(self.device)
+    )
     
     def forward(
         self,
@@ -85,6 +102,14 @@ class RMSNorm(torch.nn.Module):
         # initialize as ones, according to the given setting
         self.gain_param = torch.nn.Parameter(torch.ones((self.d_model,), dtype=self.dtype))
         
+    def load_param(
+        self,
+        gain_param: torch.Tensor
+    ):
+        assert gain_param.shape == (self.d_model,), f"Expected shape {(self.d_model,)}, but got {gain_param.shape}"
+        with torch.no_grad():
+            self.gain_param = torch.nn.Parameter(gain_param.to(self.dtype).to(self.device))
+        
     def forward(
         self,
         x: torch.Tensor # (... d_model)
@@ -97,3 +122,67 @@ class RMSNorm(torch.nn.Module):
         result = einsum(x, self.gain_param, '... i, i -> ... i') / RMS
         
         return result.to(original_dtype)
+    
+class SwiGLU(torch.nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        d_ff: int,
+        device: torch.device=None,
+        dtype: torch.dtype=None,
+    ):
+        super().__init__()
+        self.d_model=d_model
+        self.d_ff=d_ff
+        self.check_d_ff_d_model()
+        self.device=device or 'cpu'
+        self.dtype=dtype or torch.float32
+        
+        # initialize params according to the given setting
+        self.W1_layer = Linear(
+            in_features=self.d_model,
+            out_features=self.d_ff,
+        )
+        self.W2_layer = Linear(
+            in_features=self.d_ff,
+            out_features=self.d_model,
+        )
+        self.W3_layer = Linear(
+            in_features=self.d_model,
+            out_features=self.d_ff,
+        )
+     
+    def check_d_ff_d_model(
+        self
+    ):
+        """Very Naive, might need improvement in the future"""
+        # check whether d_ff and d_model is initialized
+        assert self.d_ff and self.d_model, 'Params not initialized!'
+        
+        # check whether d_ff approximately equals to (8/3) * d_model
+        expected_d_ff = (8 / 3) * self.d_model
+        assert abs(self.d_ff - expected_d_ff) <= 1e2, f"Expected d_ff to be approximately {(8 / 3) * self.d_model}, but got {self.d_ff}"
+            
+        
+    def load_param(
+        self,
+        W1: torch.Tensor | None,
+        W2: torch.Tensor | None,
+        W3: torch.Tensor | None,
+    ):
+        if W1 is not None:
+            self.W1_layer.load_param(W1)
+        if W2 is not None:
+            self.W2_layer.load_param(W2)
+        if W3 is not None:
+            self.W3_layer.load_param(W3)
+    
+    def forward(
+        self,
+        x: torch.Tensor, # (... d_model)
+    ) -> torch.Tensor:
+        SiLU_input = self.W1_layer.forward(x) # ... d_ff
+        SiLU_output = SiLU_input * torch.sigmoid(SiLU_input)
+        gate_input = self.W3_layer.forward(x) # ... d_ff
+        gate_output = einsum(SiLU_output, gate_input, '... d_model, ... d_model -> ... d_model')
+        return self.W2_layer.forward(gate_output)
