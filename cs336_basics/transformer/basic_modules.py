@@ -267,3 +267,124 @@ def scaled_dot_product_attention(
     attn_weights = softmax(scores, dim=-1)
     output = einsum(attn_weights, value, '... q k, ... k d_v -> ... q d_v')
     return output
+
+class MultiHeadSelfAttention(torch.nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        max_seq_len: int=2048,
+        theta: float=1e4,
+        device: torch.device=None,
+        dtype: torch.dtype=None,
+    ):
+        super().__init__()
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        
+        self.d_model=d_model
+        self.num_heads=num_heads
+        self.d_head = d_model // num_heads
+        self.max_seq_len=max_seq_len
+        self.theta=theta
+        self.device=device or 'cpu'
+        self.dtype=dtype or torch.float32
+        
+        self.rope=RotaryPositionalEmbedding(
+            theta=self.theta,
+            d_k=self.d_head,
+            max_seq_len=self.max_seq_len,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        
+        # initialize linear layers for Q, K, V and output projection according to the given setting
+        self.W_Q = Linear(
+            in_features=self.d_model,
+            out_features=self.d_model,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        self.W_K = Linear(
+            in_features=self.d_model,
+            out_features=self.d_model,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        self.W_V = Linear(
+            in_features=self.d_model,
+            out_features=self.d_model,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        self.W_O = Linear(
+            in_features=self.d_model,
+            out_features=self.d_model,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        
+    def load_param(
+        self,
+        W_Q: torch.Tensor=None,
+        W_K: torch.Tensor=None,
+        W_V: torch.Tensor=None,
+        W_O: torch.Tensor=None,
+    ):
+        if W_Q is not None:
+            self.W_Q.load_param(W_Q)
+        if W_K is not None:
+            self.W_K.load_param(W_K)
+        if W_V is not None:
+            self.W_V.load_param(W_V)
+        if W_O is not None:
+            self.W_O.load_param(W_O)
+            
+    def forward(
+        self,
+        x: torch.Tensor, # (... seq_len, d_model)
+        token_positions: torch.Tensor=None, 
+    ):
+        input_seq_len = x.shape[-2]
+        # (... seq_len, head * d_head)
+        q_value = self.W_Q.forward(x)
+        k_value = self.W_K.forward(x)
+        v_value = self.W_V.forward(x)
+        
+        # split heads and fold head dimension into batch dims, (... seq_len, n_head * d_head) -> (... n_head seq_len d_head)
+        q_value_split_by_heads = rearrange(
+            q_value, 
+            '... seq_len (n_head d_head) -> ... n_head seq_len d_head',
+            n_head=self.num_heads,
+        )
+        k_value_split_by_heads = rearrange(
+            k_value,
+            '... seq_len (n_head d_head) -> ... n_head seq_len d_head',
+            n_head=self.num_heads,
+        )
+        v_value_split_by_heads = rearrange(
+            v_value, 
+            '... seq_len (n_head d_head) -> ... n_head seq_len d_head',
+            n_head=self.num_heads,
+        )
+        
+        # self-attention, seq_len_q == seq_len_k
+        causal_mask = torch.tril(torch.ones((input_seq_len, input_seq_len), device=self.device))
+        attention_scores = scaled_dot_product_attention(
+            query=self.rope.forward(
+                x=q_value_split_by_heads,
+                token_positions=torch.arange(input_seq_len, device=self.device),
+            ) if token_positions is not None else q_value_split_by_heads,
+            key=self.rope.forward(
+                x=k_value_split_by_heads,
+                token_positions=torch.arange(input_seq_len, device=self.device),
+            ) if token_positions is not None else k_value_split_by_heads,
+            value=v_value_split_by_heads,
+            mask=causal_mask,
+        )
+        heads_concatenated_scores = rearrange(
+            attention_scores,
+            '... n_head seq_len d_head -> ... seq_len (n_head d_head)'    
+        )
+        return self.W_O.forward(
+            x=heads_concatenated_scores,
+        )
